@@ -1,0 +1,131 @@
+===============================
+WebSockets in Node.js – Learning Notes
+===============================
+
+1️⃣ What is a WebSocket?
+
+- WebSocket is a protocol (ws:// or wss://) for real-time, full-duplex communication.
+- Unlike HTTP, it keeps the connection open, allowing server → client communication anytime.
+- Supported natively by browsers and Node.js (with the 'ws' library).
+- Use cases:
+  • Chat apps
+  • Live notifications
+  • Online games
+  • Real-time dashboards
+
+Analogy: HTTP = “sending letters” → you wait for reply.
+         WebSocket = “phone call” → you can talk anytime, both sides.
+
+-------------------------------
+2️⃣ Setting up a raw WebSocket server in Node.js
+
+Step 1: Install ws
+------------------
+npm install ws
+
+Step 2: Create server.js
+-----------------------
+const WebSocket = require('ws');
+
+// Create WebSocket server on port 8080
+const wss = new WebSocket.Server({ port: 8080 });
+
+wss.on('connection', (ws) => {
+  console.log('A new client connected');
+
+  // Listen to messages from the client
+  ws.on('message', (message) => {
+    console.log('Received:', message);
+
+    // Echo message back to the client
+    ws.send(`Server says: ${message}`);
+  });
+
+  // Send a welcome message
+  ws.send('Welcome to the WebSocket server!');
+
+  // Handle client disconnect
+  ws.on('close', () => {
+    console.log('Client disconnected');
+  });
+});
+
+console.log('WebSocket server running on ws://localhost:8080');
+
+-------------------------------
+3️⃣ Creating a Client in Browser
+
+index.html:
+-------------
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebSocket Test</title>
+</head>
+<body>
+  <h1>WebSocket Test</h1>
+  <input id="msgInput" placeholder="Type message">
+  <button id="sendBtn">Send</button>
+  <ul id="messages"></ul>
+
+  <script>
+    // Connect to WebSocket server
+    const socket = new WebSocket('ws://localhost:8080');
+
+    const input = document.getElementById('msgInput');
+    const button = document.getElementById('sendBtn');
+    const messages = document.getElementById('messages');
+
+    // Connection opened
+    socket.addEventListener('open', () => {
+      console.log('Connected to server');
+    });
+
+    // Listen for messages from server
+    socket.addEventListener('message', (event) => {
+      const li = document.createElement('li');
+      li.textContent = event.data;
+      messages.appendChild(li);
+    });
+
+    // Send message to server
+    button.addEventListener('click', () => {
+      const msg = input.value;
+      socket.send(msg);
+      input.value = '';
+    });
+
+    // Handle close
+    socket.addEventListener('close', () => {
+      console.log('Disconnected from server');
+    });
+  </script>
+</body>
+</html>
+
+-------------------------------
+4️⃣ How This Works
+
+1. Browser opens a WebSocket connection to ws://localhost:8080
+2. Server keeps connection alive
+3. Client sends messages → server receives → server sends responses back
+4. Multiple clients can connect independently
+
+At this stage, this is raw WebSocket communication without extra features like rooms, namespaces, or auto-reconnection.
+
+-------------------------------
+5️⃣ Next Steps After This
+
+1. Broadcast messages to multiple clients
+2. Authentication: send JWT during handshake
+3. Rooms/channels for group messaging
+4. Persistent storage: store messages in MongoDB
+5. Real-world handling: reconnection, heartbeat, ping/pong
+
+-------------------------------
+Summary
+
+- WebSockets = real-time, full-duplex communication
+- Node.js + ws = lightweight raw WebSocket implementation
+- Understanding raw WebSockets gives a strong foundation before learning Socket.IO
+- Next step: implement broadcast and authentication for multiple clients
