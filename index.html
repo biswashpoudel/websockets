@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Chat + Video Call</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #e3f2fd, #e1bee7);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    h2 { color: #4a148c; margin-bottom: 10px; }
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+      width: 700px;
+      max-width: 95%;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+    }
+    .videos {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    video {
+      width: 48%;
+      border-radius: 10px;
+      background: #000;
+    }
+    .chat-box {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 10px;
+      background: #fafafa;
+      height: 200px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+    }
+    .message {
+      margin: 5px 0;
+      padding: 8px 12px;
+      border-radius: 12px;
+      display: inline-block;
+      max-width: 80%;
+      word-wrap: break-word;
+    }
+    .me { background: #d1c4e9; align-self: flex-end; }
+    .them { background: #bbdefb; align-self: flex-start; }
+    .input-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    input {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+    button {
+      background: #7b1fa2;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: 0.2s;
+      font-weight: 500;
+    }
+    button:hover { background: #6a1b9a; }
+    #startCall { background: #0288d1; }
+    #startCall:hover { background: #0277bd; }
+    #endCall { background: #d32f2f; display: none; }
+    #endCall:hover { background: #b71c1c; }
+  </style>
+</head>
+<body>
+  <h2> Video Chat app</h2>
+  <div class="container">
+    <div class="videos">
+      <video id="localVideo" autoplay muted></video>
+      <video id="remoteVideo" autoplay></video>
+    </div>
+
+    <div id="messages" class="chat-box"></div>
+
+    <div class="input-row">
+      <input id="input" type="text" placeholder="Type a message..." />
+      <button id="send">Send</button>
+      <button id="startCall">Start Call</button>
+      <button id="endCall">End Call</button>
+    </div>
+  </div>
+
+  <script>
+    const socket = new WebSocket("ws://localhost:8080");
+    const messagesDiv = document.getElementById("messages");
+    const input = document.getElementById("input");
+    const sendBtn = document.getElementById("send");
+    const startCallBtn = document.getElementById("startCall");
+    const endCallBtn = document.getElementById("endCall");
+
+    let peer, localStream;
+
+    function addMessage(text, me = false) {
+      const msg = document.createElement("div");
+      msg.className = "message " + (me ? "me" : "them");
+      msg.textContent = text;
+      messagesDiv.appendChild(msg);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    sendBtn.onclick = () => {
+      const text = input.value.trim();
+      if (text) {
+        addMessage("You: " + text, true);
+        socket.send(JSON.stringify({ type: "chat", text }));
+        input.value = "";
+      }
+    };
+    input.addEventListener("keypress", e => e.key === "Enter" && sendBtn.click());
+
+    const localVideo = document.getElementById("localVideo");
+    const remoteVideo = document.getElementById("remoteVideo");
+
+    // --- Setup Peer ---
+    function createPeer() {
+      peer = new RTCPeerConnection();
+      peer.ontrack = (e) => { remoteVideo.srcObject = e.streams[0]; };
+      peer.onicecandidate = (e) => {
+        if (e.candidate) {
+          socket.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
+        }
+      };
+    }
+
+    async function startCall() {
+      createPeer();
+      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localVideo.srcObject = localStream;
+      localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
+
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      socket.send(JSON.stringify({ type: "offer", offer }));
+
+      startCallBtn.style.display = "none";
+      endCallBtn.style.display = "inline-block";
+    }
+
+    async function endCall() {
+      // stop local tracks
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+
+      // close peer connection
+      if (peer) {
+        peer.close();
+        peer = null;
+      }
+
+      localVideo.srcObject = null;
+      remoteVideo.srcObject = null;
+
+      startCallBtn.style.display = "inline-block";
+      endCallBtn.style.display = "none";
+
+      // notify remote side to end call
+      socket.send(JSON.stringify({ type: "endCall" }));
+    }
+
+    startCallBtn.onclick = startCall;
+    endCallBtn.onclick = endCall;
+
+    socket.onmessage = async (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === "chat") {
+        addMessage("Friend: " + data.text);
+      }
+
+      if (data.type === "offer") {
+        createPeer();
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localVideo.srcObject = localStream;
+        localStream.getTracks().forEach(t => peer.addTrack(t, localStream));
+
+        await peer.setRemoteDescription(new RTCSessionDescription(data.offer));
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+        socket.send(JSON.stringify({ type: "answer", answer }));
+
+        startCallBtn.style.display = "none";
+        endCallBtn.style.display = "inline-block";
+      }
+
+      if (data.type === "answer" && peer) {
+        await peer.setRemoteDescription(new RTCSessionDescription(data.answer));
+      }
+
+      if (data.type === "candidate" && data.candidate && peer) {
+        try {
+          await peer.addIceCandidate(data.candidate);
+        } catch (err) {
+          console.error("ICE error:", err);
+        }
+      }
+
+      if (data.type === "endCall") {
+        endCall();
+      }
+    };
+  </script>
+</body>
+</html>
