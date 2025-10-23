@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Chat + Video Call</title>
+  <title>WebRTC Chat + Video Call</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -87,7 +87,7 @@
   </style>
 </head>
 <body>
-  <h2> Video Chat app</h2>
+  <h2>WebRTC Chat + Video Call</h2>
   <div class="container">
     <div class="videos">
       <video id="localVideo" autoplay muted></video>
@@ -105,7 +105,9 @@
   </div>
 
   <script>
-    const socket = new WebSocket("ws://localhost:8080");
+    // Connect to your Render WebSocket
+    const socket = new WebSocket("wss://websockets-7iya.onrender.com");
+
     const messagesDiv = document.getElementById("messages");
     const input = document.getElementById("input");
     const sendBtn = document.getElementById("send");
@@ -113,6 +115,8 @@
     const endCallBtn = document.getElementById("endCall");
 
     let peer, localStream;
+    const localVideo = document.getElementById("localVideo");
+    const remoteVideo = document.getElementById("remoteVideo");
 
     function addMessage(text, me = false) {
       const msg = document.createElement("div");
@@ -132,10 +136,6 @@
     };
     input.addEventListener("keypress", e => e.key === "Enter" && sendBtn.click());
 
-    const localVideo = document.getElementById("localVideo");
-    const remoteVideo = document.getElementById("remoteVideo");
-
-    // --- Setup Peer ---
     function createPeer() {
       peer = new RTCPeerConnection();
       peer.ontrack = (e) => { remoteVideo.srcObject = e.streams[0]; };
@@ -161,25 +161,19 @@
     }
 
     async function endCall() {
-      // stop local tracks
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-      }
-
-      // close peer connection
+      if (localStream) localStream.getTracks().forEach(track => track.stop());
       if (peer) {
         peer.close();
         peer = null;
       }
-
       localVideo.srcObject = null;
       remoteVideo.srcObject = null;
 
       startCallBtn.style.display = "inline-block";
       endCallBtn.style.display = "none";
 
-      // notify remote side to end call
       socket.send(JSON.stringify({ type: "endCall" }));
+      addMessage("📞 Call ended", true);
     }
 
     startCallBtn.onclick = startCall;
@@ -188,10 +182,7 @@
     socket.onmessage = async (event) => {
       const data = JSON.parse(event.data);
 
-      if (data.type === "chat") {
-        addMessage("Friend: " + data.text);
-      }
-
+      if (data.type === "chat") addMessage("Friend: " + data.text);
       if (data.type === "offer") {
         createPeer();
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -206,21 +197,15 @@
         startCallBtn.style.display = "none";
         endCallBtn.style.display = "inline-block";
       }
-
-      if (data.type === "answer" && peer) {
+      if (data.type === "answer" && peer)
         await peer.setRemoteDescription(new RTCSessionDescription(data.answer));
-      }
 
-      if (data.type === "candidate" && data.candidate && peer) {
-        try {
-          await peer.addIceCandidate(data.candidate);
-        } catch (err) {
-          console.error("ICE error:", err);
-        }
-      }
+      if (data.type === "candidate" && data.candidate && peer)
+        await peer.addIceCandidate(data.candidate);
 
       if (data.type === "endCall") {
         endCall();
+        addMessage("📴 Friend ended the call");
       }
     };
   </script>
