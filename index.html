@@ -16,15 +16,11 @@
       margin: 0;
       padding: 10px;
     }
-    h2 {
-      color: #4a148c;
-      margin-bottom: 10px;
-      text-align: center;
-    }
+    h2 { text-align:center; color:#4a148c; margin-bottom:10px; }
     .container {
       background: white;
       border-radius: 16px;
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.15);
       width: 100%;
       max-width: 600px;
       padding: 16px;
@@ -42,19 +38,14 @@
     video {
       width: 48%;
       max-width: 260px;
-      aspect-ratio: 4 / 3;
+      aspect-ratio: 4/3;
       border-radius: 12px;
       background: #000;
       object-fit: cover;
     }
-    @media (max-width: 600px) {
-      .videos {
-        flex-direction: column;
-      }
-      video {
-        width: 100%;
-        max-width: 100%;
-      }
+    @media (max-width:600px){
+      .videos { flex-direction: column; }
+      video { width:100%; max-width:100%; }
     }
     .chat-box {
       border: 1px solid #ddd;
@@ -67,49 +58,61 @@
       flex-direction: column;
     }
     .message {
-      margin: 5px 0;
-      padding: 8px 12px;
-      border-radius: 12px;
-      display: inline-block;
-      max-width: 80%;
-      word-wrap: break-word;
+      margin:5px 0;
+      padding:8px 12px;
+      border-radius:12px;
+      display:inline-block;
+      max-width:80%;
+      word-wrap:break-word;
     }
-    .me { background: #d1c4e9; align-self: flex-end; }
-    .them { background: #bbdefb; align-self: flex-start; }
+    .me { background:#d1c4e9; align-self:flex-end; }
+    .them { background:#bbdefb; align-self:flex-start; }
     .input-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
     }
     input {
-      flex: 1;
-      padding: 10px;
-      border-radius: 8px;
-      border: 1px solid #ccc;
-      font-size: 14px;
+      flex:1;
+      padding:10px;
+      border-radius:8px;
+      border:1px solid #ccc;
+      font-size:14px;
     }
     button {
-      background: #7b1fa2;
-      color: white;
-      border: none;
-      padding: 10px 14px;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: 0.2s;
-      font-weight: 500;
-      flex-shrink: 0;
+      background:#7b1fa2;
+      color:white;
+      border:none;
+      padding:10px 14px;
+      border-radius:8px;
+      cursor:pointer;
+      transition:0.2s;
+      font-weight:500;
+      flex-shrink:0;
     }
-    button:hover { background: #6a1b9a; }
-    #startCall { background: #0288d1; }
-    #startCall:hover { background: #0277bd; }
-    #endCall { background: #d32f2f; display: none; }
-    #endCall:hover { background: #b71c1c; }
+    button:hover { background:#6a1b9a; }
+    #startCall { background:#0288d1; }
+    #startCall:hover { background:#0277bd; }
+    #endCall { background:#d32f2f; display:none; }
+    #endCall:hover { background:#b71c1c; }
+    #incomingCall {
+      position:fixed;
+      top:50%; left:50%;
+      transform:translate(-50%,-50%);
+      background:white;
+      border-radius:12px;
+      box-shadow:0 4px 12px rgba(0,0,0,0.3);
+      padding:20px;
+      display:none;
+      z-index:100;
+      text-align:center;
+    }
+    #incomingCall button { margin:5px; }
   </style>
 </head>
 <body>
   <div class="container">
-    
-    <h2>Test App - Biswash</h2>
+    <h2>Test App 1.1 Biswash</h2>
 
     <div class="videos">
       <video id="localVideo" autoplay muted playsinline></video>
@@ -124,105 +127,126 @@
       <button id="startCall">Start Call</button>
       <button id="endCall">End Call</button>
     </div>
-    </div>
+  </div>
 
+  <div id="incomingCall">
+    <p>📞 Incoming call...</p>
+    <button id="acceptCall">Accept</button>
+    <button id="rejectCall">Reject</button>
+  </div>
 
+<script>
+const socket = new WebSocket("wss://websockets-7iya.onrender.com");
 
-  <script>
-    // connect to your deployed WebSocket server
-    const socket = new WebSocket("wss://websockets-7iya.onrender.com");
+const messagesDiv = document.getElementById("messages");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const startCallBtn = document.getElementById("startCall");
+const endCallBtn = document.getElementById("endCall");
 
-    const messagesDiv = document.getElementById("messages");
-    const input = document.getElementById("input");
-    const sendBtn = document.getElementById("send");
-    const startCallBtn = document.getElementById("startCall");
-    const endCallBtn = document.getElementById("endCall");
+const incomingDiv = document.getElementById("incomingCall");
+const acceptBtn = document.getElementById("acceptCall");
+const rejectBtn = document.getElementById("rejectCall");
 
-    let peer, localStream;
-    const localVideo = document.getElementById("localVideo");
-    const remoteVideo = document.getElementById("remoteVideo");
+let peer, localStream;
+const localVideo = document.getElementById("localVideo");
+const remoteVideo = document.getElementById("remoteVideo");
 
-    function addMessage(text, me = false) {
-      const msg = document.createElement("div");
-      msg.className = "message " + (me ? "me" : "them");
-      msg.textContent = text;
-      messagesDiv.appendChild(msg);
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    }
+function addMessage(text, me=false){
+  const msg = document.createElement("div");
+  msg.className = "message "+(me?"me":"them");
+  msg.textContent=text;
+  messagesDiv.appendChild(msg);
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
 
-    sendBtn.onclick = () => {
-      const text = input.value.trim();
-      if (text) {
-        addMessage("You: " + text, true);
-        socket.send(JSON.stringify({ type: "chat", text }));
-        input.value = "";
-      }
-    };
-    input.addEventListener("keypress", e => e.key === "Enter" && sendBtn.click());
+sendBtn.onclick = ()=>{
+  const text=input.value.trim();
+  if(text){
+    addMessage("You: "+text,true);
+    socket.send(JSON.stringify({type:"chat",text}));
+    input.value="";
+  }
+}
+input.addEventListener("keypress",e=>e.key==="Enter" && sendBtn.click());
 
-    function createPeer() {
-      peer = new RTCPeerConnection();
-      peer.ontrack = (e) => (remoteVideo.srcObject = e.streams[0]);
-      peer.onicecandidate = (e) => {
-        if (e.candidate) {
-          socket.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
-        }
-      };
-    }
+function createPeer(){
+  peer = new RTCPeerConnection();
+  peer.ontrack = (e)=> remoteVideo.srcObject=e.streams[0];
+  peer.onicecandidate=(e)=>{
+    if(e.candidate) socket.send(JSON.stringify({type:"candidate",candidate:e.candidate}));
+  };
+}
 
-    async function startCall() {
-      createPeer();
-      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      localVideo.srcObject = localStream;
-      localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
+async function startCall(){
+  createPeer();
+  localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+  localVideo.srcObject = localStream;
+  localStream.getTracks().forEach(track=>peer.addTrack(track,localStream));
+  const offer = await peer.createOffer();
+  await peer.setLocalDescription(offer);
+  socket.send(JSON.stringify({type:"offer",offer}));
 
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      socket.send(JSON.stringify({ type: "offer", offer }));
+  startCallBtn.style.display="none";
+  endCallBtn.style.display="inline-block";
+}
 
-      startCallBtn.style.display = "none";
-      endCallBtn.style.display = "inline-block";
-    }
+async function endCall(){
+  if(localStream) localStream.getTracks().forEach(track=>track.stop());
+  if(peer){ peer.close(); peer=null; }
+  localVideo.srcObject=null;
+  remoteVideo.srcObject=null;
+  startCallBtn.style.display="inline-block";
+  endCallBtn.style.display="none";
+  socket.send(JSON.stringify({type:"endCall"}));
+  addMessage("📞 Call ended",true);
+}
 
-    async function endCall() {
-      if (localStream) localStream.getTracks().forEach(track => track.stop());
-      if (peer) { peer.close(); peer = null; }
-      localVideo.srcObject = null;
-      remoteVideo.srcObject = null;
-      startCallBtn.style.display = "inline-block";
-      endCallBtn.style.display = "none";
-      socket.send(JSON.stringify({ type: "endCall" }));
-      addMessage("📞 Call ended", true);
-    }
+startCallBtn.onclick=startCall;
+endCallBtn.onclick=endCall;
 
-    startCallBtn.onclick = startCall;
-    endCallBtn.onclick = endCall;
+acceptBtn.onclick = async ()=>{
+  incomingDiv.style.display="none";
+  createPeer();
+  localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+  localVideo.srcObject = localStream;
+  localStream.getTracks().forEach(track=>peer.addTrack(track,localStream));
+  await peer.setRemoteDescription(new RTCSessionDescription(currentOffer));
+  const answer = await peer.createAnswer();
+  await peer.setLocalDescription(answer);
+  socket.send(JSON.stringify({type:"answer",answer}));
+  startCallBtn.style.display="none";
+  endCallBtn.style.display="inline-block";
+}
 
-    socket.onmessage = async (event) => {
-      const data = JSON.parse(event.data);
+rejectBtn.onclick = ()=>{
+  incomingDiv.style.display="none";
+  socket.send(JSON.stringify({type:"rejectCall"}));
+}
 
-      if (data.type === "chat") addMessage("Friend: " + data.text);
-      if (data.type === "offer") {
-        createPeer();
-        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        localVideo.srcObject = localStream;
-        localStream.getTracks().forEach(t => peer.addTrack(t, localStream));
-        await peer.setRemoteDescription(new RTCSessionDescription(data.offer));
-        const answer = await peer.createAnswer();
-        await peer.setLocalDescription(answer);
-        socket.send(JSON.stringify({ type: "answer", answer }));
-        startCallBtn.style.display = "none";
-        endCallBtn.style.display = "inline-block";
-      }
-      if (data.type === "answer" && peer)
-        await peer.setRemoteDescription(new RTCSessionDescription(data.answer));
-      if (data.type === "candidate" && data.candidate && peer)
-        await peer.addIceCandidate(data.candidate);
-      if (data.type === "endCall") {
-        endCall();
-        addMessage("📴 Friend ended the call");
-      }
-    };
-  </script>
+let currentOffer = null;
+
+socket.onmessage = async (event)=>{
+  const data = JSON.parse(event.data);
+
+  if(data.type==="chat") addMessage("Friend: "+data.text);
+  if(data.type==="offer"){
+    currentOffer = data.offer;
+    incomingDiv.style.display="block";
+  }
+  if(data.type==="answer" && peer)
+    await peer.setRemoteDescription(new RTCSessionDescription(data.answer));
+  if(data.type==="candidate" && data.candidate && peer)
+    await peer.addIceCandidate(data.candidate);
+  if(data.type==="endCall"){
+    endCall();
+    addMessage("📴 Friend ended the call");
+  }
+  if(data.type==="rejectCall"){
+    alert("Friend rejected the call");
+    endCall();
+  }
+};
+</script>
 </body>
 </html>
