@@ -124,40 +124,6 @@
   Config & helpers
    ======================== */
 const statusSpan = document.getElementById("status");
-
-// Choose STUN/TURN — recommended to replace TURN with your own credentials in production.
-const ICE_CONFIG = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    // Metered TURN demo (for testing only); replace with your own TURN server for production
-    {
-      urls: "turn:global.relay.metered.ca:80",
-      username: "openai",
-      credential: "openai123"
-    }
-  ]
-};
-
-function logStatus(s){ console.log(s); statusSpan.textContent = s; }
-
-/* ========================
-  WebSocket (signaling) setup
-   ======================== */
-// Use wss when loaded over https; ws otherwise
-const wsProt = (location.protocol === "https:") ? "wss:" : "ws:";
-const signalUrl = wsProt + "//" + window.location.host;
-const socket = new WebSocket(signalUrl);
-
-socket.addEventListener("open", () => logStatus("connected"));
-socket.addEventListener("close", () => logStatus("disconnected"));
-socket.addEventListener("error", (e) => {
-  console.error("WebSocket error", e);
-  logStatus("ws error");
-});
-
-/* ========================
-  UI elements
-   ======================== */
 const localVideo = document.getElementById("localVideo");
 const remoteVideo = document.getElementById("remoteVideo");
 const startCallBtn = document.getElementById("startCall");
@@ -168,6 +134,25 @@ const sendBtn = document.getElementById("sendBtn");
 const incomingDiv = document.getElementById("incoming");
 const acceptBtn = document.getElementById("acceptBtn");
 const rejectBtn = document.getElementById("rejectBtn");
+
+function logStatus(s){ console.log(s); statusSpan.textContent = s; }
+
+/* ICE configuration */
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" }
+  ]
+};
+
+/* ========================
+  WebSocket signaling
+   ======================== */
+const wsProt = (location.protocol === "https:") ? "wss:" : "ws:";
+const socket = new WebSocket(wsProt + "//" + window.location.host);
+
+socket.addEventListener("open", () => logStatus("connected"));
+socket.addEventListener("close", () => logStatus("disconnected"));
+socket.addEventListener("error", (e) => { console.error("WS error", e); logStatus("ws error"); });
 
 /* ========================
   Chat helpers
@@ -183,108 +168,83 @@ function addMessage(text, me=false){
 sendBtn.onclick = () => {
   const txt = textInput.value.trim();
   if (!txt) return;
-  const payload = { type: "chat", text: txt };
-  socket.send(JSON.stringify(payload));
+  socket.send(JSON.stringify({ type: "chat", text: txt }));
   addMessage("You: " + txt, true);
   textInput.value = "";
 };
 
-socket.addEventListener("message", async (ev) => {
-  try {
-    const data = JSON.parse(ev.data);
-    handleSignalMessage(data);
-  } catch (e) {
-    console.warn("Bad signal message:", ev.data);
-  }
-});
-
 /* ========================
-  Signaling message flow
-  Types used:
-  - chat {text}
-  - callRequest
-  - callAccepted
-  - callRejected
-  - offer {offer}
-  - answer {answer}
-  - candidate {candidate}
-  - endCall
-   ======================== */
-
-function sendSignal(obj){
-  socket.send(JSON.stringify(obj));
-}
-
-/* ========================
-  WebRTC (peer) state
+  WebRTC state
    ======================== */
 let pc = null;
 let localStream = null;
-let isCalling = false;   // caller side when request sent
-let incomingOffer = null; // store offer when received (not used with accept flow because caller only sends offer after accept)
+let isCalling = false;
+let pendingCandidates = [];
 
-/* createPeer: create RTCPeerConnection and hook events */
+/* Create peer connection */
 function createPeer() {
   if (pc) return pc;
   pc = new RTCPeerConnection(ICE_CONFIG);
 
-  pc.onicecandidate = (ev) => {
-    if (ev.candidate) {
-      sendSignal({ type: "candidate", candidate: ev.candidate });
-    }
+  pc.onicecandidate = ev => {
+    if (ev.candidate) sendSignal({ type: "candidate", candidate: ev.candidate });
   };
 
-  pc.ontrack = (ev) => {
-    // remote stream
-    remoteVideo.srcObject = ev.streams[0];
-  };
+  pc.ontrack = ev => { remoteVideo.srcObject = ev.streams[0]; };
+
+  // Add any queued ICE candidates
+  pendingCandidates.forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)));
+  pendingCandidates = [];
 
   return pc;
 }
 
-/* cleanup call state */
+/* ========================
+  Signaling helpers
+   ======================== */
+function sendSignal(obj){ socket.send(JSON.stringify(obj)); }
+
+socket.addEventListener("message", async ev => {
+  try { handleSignalMessage(JSON.parse(ev.data)); }
+  catch(e){ console.warn("Bad signal message:", ev.data); }
+});
+
+/* ========================
+  Call flow helpers
+   ======================== */
+async function endCall(notify=true){
+  if (notify) sendSignal({ type: "endCall" });
+  if (pc) { try { pc.close(); } catch(e){} pc = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream=null; }
+  localVideo.srcObject = null;
+  remoteVideo.srcObject = null;
+  isCalling = false;
+  cleanupCallUI();
+  addMessage("📞 Call ended", true);
+}
+
 function cleanupCallUI(){
   startCallBtn.style.display = "inline-block";
   endCallBtn.style.display = "none";
 }
 
-async function endCall(notify=true){
-  if (notify) sendSignal({ type: "endCall" });
-  if (pc) { try { pc.close(); } catch(e){} pc = null; }
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
-  }
-  localVideo.srcObject = null;
-  remoteVideo.srcObject = null;
-  isCalling = false;
-  incomingOffer = null;
-  cleanupCallUI();
-  addMessage("📞 Call ended", true);
-}
-
 /* ========================
-  Call request / accept flow
+  Incoming call handlers
    ======================== */
-
-startCallBtn.onclick = async () => {
-  // send a call request to other peers
+startCallBtn.onclick = () => {
   sendSignal({ type: "callRequest" });
   isCalling = true;
-  logStatus("call requested → waiting for accept");
+  logStatus("call requested — waiting for accept");
   addMessage("📨 Call request sent — waiting for friend to accept", true);
-  // show UI that we're waiting (keep Start button hidden to avoid repeat)
   startCallBtn.style.display = "none";
   endCallBtn.style.display = "inline-block";
 };
 
 acceptBtn.onclick = async () => {
   incomingDiv.style.display = "none";
-  // accept: tell caller to proceed and then act as receiver of offer
   sendSignal({ type: "callAccepted" });
   logStatus("call accepted — waiting for offer");
   addMessage("📞 Call accepted", true);
-  // keep Start hidden and show End
   startCallBtn.style.display = "none";
   endCallBtn.style.display = "inline-block";
 };
@@ -297,38 +257,33 @@ rejectBtn.onclick = () => {
 };
 
 /* ========================
-  Handle signaling messages
+  Handle incoming signals
    ======================== */
 async function handleSignalMessage(msg){
   switch(msg.type){
     case "chat":
-      addMessage("Friend: " + msg.text, false);
+      addMessage("Friend: " + msg.text);
       break;
 
     case "callRequest":
-      // Show incoming modal
       incomingDiv.style.display = "block";
       logStatus("incoming call");
-      addMessage("📨 Incoming call...", false);
+      addMessage("📨 Incoming call...");
       break;
 
     case "callAccepted":
-      // caller receives this — now create Peer, open media, createOffer and send it
-      logStatus("call accepted by friend — creating offer");
+      logStatus("call accepted — creating offer");
       await callerCreateOffer();
       break;
 
     case "callRejected":
-      // caller told us they rejected
       logStatus("friend rejected the call");
-      addMessage("✖️ Friend rejected the call", false);
-      // reset UI for caller
+      addMessage("✖️ Friend rejected the call");
       isCalling = false;
       cleanupCallUI();
       break;
 
     case "offer":
-      // receiver receives offer (caller sent after callAccepted)
       logStatus("offer received");
       await handleReceivedOffer(msg.offer);
       break;
@@ -337,19 +292,21 @@ async function handleSignalMessage(msg){
       logStatus("answer received");
       if (pc && msg.answer) {
         try { await pc.setRemoteDescription(new RTCSessionDescription(msg.answer)); }
-        catch(e){ console.error("setRemoteDescription(answer) error", e); }
+        catch(e){ console.error(e); }
       }
       break;
 
     case "candidate":
-      if (pc && msg.candidate) {
+      if (pc) {
         try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); }
-        catch(e){ console.warn("addIceCandidate error", e); }
+        catch(e){ console.warn(e); }
+      } else {
+        pendingCandidates.push(msg.candidate);
       }
       break;
 
     case "endCall":
-      addMessage("📴 Friend ended the call", false);
+      addMessage("📴 Friend ended the call");
       await endCall(false);
       break;
 
@@ -359,7 +316,7 @@ async function handleSignalMessage(msg){
 }
 
 /* ========================
-  Caller: createOffer after call accepted
+  Caller creates offer
    ======================== */
 async function callerCreateOffer(){
   try {
@@ -367,48 +324,41 @@ async function callerCreateOffer(){
     localVideo.srcObject = localStream;
 
     createPeer();
-    // add tracks
-    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-
-    // send to other peers (they will set remote and answer)
     sendSignal({ type: "offer", offer });
+
     logStatus("offer sent");
     addMessage("📞 Calling — offer sent", true);
-  } catch (e) {
-    console.error("callerCreateOffer error", e);
+  } catch(e){
+    console.error(e);
     addMessage("❗ Could not start camera/mic", true);
     cleanupCallUI();
   }
 }
 
 /* ========================
-  Receiver: handle offer (set remote, get local, create answer)
+  Receiver handles offer
    ======================== */
 async function handleReceivedOffer(offer){
   try {
-    // create peer (if not)
     createPeer();
-
-    // get local media
     localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
     localVideo.srcObject = localStream;
-    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
-    // set remote and answer
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-
-    // send answer back
     sendSignal({ type: "answer", answer });
-    logStatus("answer sent");
-    addMessage("📞 Answer sent — call connected", true);
-  } catch (e) {
-    console.error("handleReceivedOffer error", e);
-    addMessage("❗ Could not accept call (media error)", false);
+
+    logStatus("answer sent — call connected");
+    addMessage("📞 Call connected", true);
+  } catch(e){
+    console.error(e);
+    addMessage("❗ Could not accept call", false);
     sendSignal({ type: "callRejected" });
   }
 }
@@ -416,16 +366,15 @@ async function handleReceivedOffer(offer){
 /* ========================
   End call button
    ======================== */
-endCallBtn.onclick = async () => {
-  await endCall(true);
-};
+endCallBtn.onclick = async () => await endCall(true);
 
 /* ========================
-  Clean up on page unload (tell others)
+  Cleanup on unload
    ======================== */
 window.addEventListener("beforeunload", () => {
   try { sendSignal({ type: "endCall" }); } catch(e){}
 });
 </script>
+
 </body>
 </html>
