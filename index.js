@@ -1,49 +1,45 @@
-// server.js
+// index.js
+// Simple Express + WebSocket server that serves index.html and relays signaling/chat messages.
+// Run: npm init -y && npm install express ws
+const express = require("express");
 const http = require("http");
-const fs = require("fs");
 const path = require("path");
 const WebSocket = require("ws");
 
-// Create HTTP server
-const server = http.createServer((req, res) => {
-  if (req.url === "/" || req.url === "/index.html") {
-    fs.readFile(path.join(__dirname, "index.html"), (err, data) => {
-      if (err) {
-        res.writeHead(500);
-        res.end("Error loading index.html");
-      } else {
-        res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(data);
-      }
-    });
-  } else {
-    res.writeHead(404);
-    res.end("Not found");
-  }
-});
-
-// WebSocket server on same port
+const app = express();
+const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
-let clients = [];
 
-wss.on("connection", (socket) => {
+// Serve index.html from same folder
+app.use(express.static(path.join(__dirname)));
+
+wss.on("connection", (ws) => {
   console.log("Client connected");
-  clients.push(socket);
 
-  socket.on("message", (msg) => {
-    // broadcast to everyone else
-    clients.forEach((client) => {
-      if (client !== socket && client.readyState === WebSocket.OPEN) {
-        client.send(msg.toString());
+  ws.on("message", (message) => {
+    // All messages are JSON strings — broadcast to all other clients
+    let msg;
+    try {
+      msg = JSON.parse(message.toString());
+    } catch (e) {
+      console.warn("Non-JSON message received:", message.toString());
+      return;
+    }
+
+    // Broadcast to everyone except sender
+    wss.clients.forEach((client) => {
+      if (client !== ws && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(msg));
       }
     });
   });
 
-  socket.on("close", () => {
+  ws.on("close", () => {
     console.log("Client disconnected");
-    clients = clients.filter((c) => c !== socket);
   });
 });
 
-const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
