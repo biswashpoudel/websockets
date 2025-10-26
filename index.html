@@ -1,380 +1,262 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Chat + WebRTC Video (Ready for Render)</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebRTC Chat + Video Call (Global)</title>
   <style>
     * { box-sizing: border-box; }
     body {
-      font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      margin: 0; min-height: 100vh;
-      display: flex; align-items: center; justify-content: center;
-      background: linear-gradient(135deg,#e8f0ff,#f3e7ff);
-      padding: 16px;
+      font-family: "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #e3f2fd, #e1bee7);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 10px;
     }
-    .app {
-      width: 100%;
-      max-width: 920px;
+    h2 { text-align:center; color:#4a148c; margin-bottom:10px; }
+    .container {
       background: white;
-      border-radius: 12px;
-      box-shadow: 0 8px 30px rgba(16,24,40,0.08);
+      border-radius: 16px;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+      width: 100%;
+      max-width: 600px;
       padding: 16px;
-      display: grid;
-      grid-template-columns: 1fr 360px;
-      gap: 16px;
-    }
-
-    @media (max-width: 880px) {
-      .app { grid-template-columns: 1fr; }
-    }
-
-    .left {
-      display: flex; flex-direction: column; gap: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
     .videos {
-      display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
     }
     video {
-      background: #000; border-radius: 10px; object-fit: cover;
+      width: 48%;
+      max-width: 260px;
+      aspect-ratio: 4/3;
+      border-radius: 12px;
+      background: #000;
+      object-fit: cover;
     }
-    .local { width: 48%; min-width: 160px; aspect-ratio: 4/3; }
-    .remote { width: 48%; min-width: 160px; aspect-ratio: 4/3; }
-
-    @media (max-width: 600px) {
-      .local, .remote { width: 100%; }
+    @media (max-width:600px){
+      .videos { flex-direction: column; }
+      video { width:100%; max-width:100%; }
     }
-
-    .controls { display:flex; gap:10px; align-items:center; }
+    .chat-box {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 10px;
+      background: #fafafa;
+      height: 180px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .message {
+      margin:5px 0;
+      padding:8px 12px;
+      border-radius:12px;
+      display:inline-block;
+      max-width:80%;
+      word-wrap:break-word;
+    }
+    .me { background:#d1c4e9; align-self:flex-end; }
+    .them { background:#bbdefb; align-self:flex-start; }
+    .input-row {
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    input {
+      flex:1;
+      padding:10px;
+      border-radius:8px;
+      border:1px solid #ccc;
+      font-size:14px;
+    }
     button {
-      padding: 10px 12px; border-radius: 8px; border: none; cursor: pointer;
-      font-weight: 600;
+      background:#7b1fa2;
+      color:white;
+      border:none;
+      padding:10px 14px;
+      border-radius:8px;
+      cursor:pointer;
+      transition:0.2s;
+      font-weight:500;
+      flex-shrink:0;
     }
-    .btn-primary { background: #2b6ef6; color: white; }
-    .btn-accept { background: #16a34a; color: white; }
-    .btn-danger { background: #ef4444; color: white; }
-
-    .chat {
-      display:flex; flex-direction:column; height: 100%;
-      border-radius: 10px; border: 1px solid #eef2ff; padding: 12px;
-      background: linear-gradient(180deg,#ffffff,#fbfbff);
+    button:hover { background:#6a1b9a; }
+    #startCall { background:#0288d1; }
+    #startCall:hover { background:#0277bd; }
+    #endCall { background:#d32f2f; display:none; }
+    #endCall:hover { background:#b71c1c; }
+    #incomingCall {
+      position:fixed;
+      top:50%; left:50%;
+      transform:translate(-50%,-50%);
+      background:white;
+      border-radius:12px;
+      box-shadow:0 4px 12px rgba(0,0,0,0.3);
+      padding:20px;
+      display:none;
+      z-index:100;
+      text-align:center;
     }
-    .messages { flex:1; overflow:auto; padding:8px; display:flex; flex-direction:column; gap:8px; }
-    .msg { max-width: 85%; padding:8px 10px; border-radius:10px; }
-    .me { align-self:flex-end; background:#ede7ff; }
-    .them { align-self:flex-start; background:#e6f0ff; }
-
-    .input-row { display:flex; gap:8px; margin-top:8px; }
-    .input-row input { flex:1; padding:10px; border-radius:8px; border:1px solid #e6e9f2; }
-    .small { font-size:13px; color:#475569; }
-
-    /* incoming call modal */
-    .incoming {
-      position: fixed; left:50%; top:18%; transform:translateX(-50%);
-      background: white; padding:14px 18px; border-radius: 10px;
-      box-shadow: 0 8px 30px rgba(16,24,40,0.12);
-      display:none; z-index: 1000; width: 320px; text-align:center;
-    }
-    .incoming p { margin:0 0 12px 0; font-weight:600; }
+    #incomingCall button { margin:5px; }
   </style>
 </head>
 <body>
-  <div class="app" role="main">
-    <div class="left">
-      <div style="display:flex; align-items:center; justify-content:space-between;">
-        <h3 style="margin:0"> Test App - Biswash 1.2</h3>
-        <div class="controls">
-          <button id="startCall" class="btn-primary">Start Call</button>
-          <button id="endCall" class="btn-danger" style="display:none">End Call</button>
-        </div>
-      </div>
+  <div class="container">
+    <h2>🌐 Global Video Chat (Biswash)</h2>
 
-      <div class="videos">
-        <video id="localVideo" class="local" autoplay muted playsinline></video>
-        <video id="remoteVideo" class="remote" autoplay playsinline></video>
-      </div>
+    <div class="videos">
+      <video id="localVideo" autoplay muted playsinline></video>
+      <video id="remoteVideo" autoplay playsinline></video>
     </div>
 
-    <div class="chat">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <strong>Messages</strong>
-        <span class="small">Status: <span id="status">connecting...</span></span>
-      </div>
+    <div id="messages" class="chat-box"></div>
 
-      <div id="messages" class="messages" aria-live="polite"></div>
-
-      <div class="input-row" style="margin-top:8px;">
-        <input id="textInput" placeholder="Type message and press Send" autocomplete="off"/>
-        <button id="sendBtn" class="btn-primary">Send</button>
-      </div>
+    <div class="input-row">
+      <input id="input" type="text" placeholder="Type a message..." />
+      <button id="send">Send</button>
+      <button id="startCall">Start Call</button>
+      <button id="endCall">End Call</button>
     </div>
   </div>
 
-  <!-- incoming call modal -->
-  <div id="incoming" class="incoming" role="dialog" aria-modal="true">
-    <p>📞 Incoming call</p>
-    <div style="display:flex; gap:8px; justify-content:center;">
-      <button id="acceptBtn" class="btn-accept">Accept</button>
-      <button id="rejectBtn" class="btn-danger">Reject</button>
-    </div>
+  <div id="incomingCall">
+    <p>📞 Incoming call...</p>
+    <button id="acceptCall">Accept</button>
+    <button id="rejectCall">Reject</button>
   </div>
 
 <script>
-/* ========================
-  Config & helpers
-   ======================== */
-const statusSpan = document.getElementById("status");
-const localVideo = document.getElementById("localVideo");
-const remoteVideo = document.getElementById("remoteVideo");
+const socket = new WebSocket("wss://websockets-7iya.onrender.com"); // Your Render signaling server
+
+const messagesDiv = document.getElementById("messages");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
 const startCallBtn = document.getElementById("startCall");
 const endCallBtn = document.getElementById("endCall");
-const messagesDiv = document.getElementById("messages");
-const textInput = document.getElementById("textInput");
-const sendBtn = document.getElementById("sendBtn");
-const incomingDiv = document.getElementById("incoming");
-const acceptBtn = document.getElementById("acceptBtn");
-const rejectBtn = document.getElementById("rejectBtn");
 
-function logStatus(s){ console.log(s); statusSpan.textContent = s; }
+const incomingDiv = document.getElementById("incomingCall");
+const acceptBtn = document.getElementById("acceptCall");
+const rejectBtn = document.getElementById("rejectCall");
 
-/* ICE configuration */
-const ICE_CONFIG = {
+let peer, localStream, currentOffer;
+const localVideo = document.getElementById("localVideo");
+const remoteVideo = document.getElementById("remoteVideo");
+
+// ✅ Add global STUN + TURN servers
+const iceConfig = {
   iceServers: [
-    { urls: "stun:stun.l.google.com:19302" }
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:global.stun.twilio.com:3478?transport=udp" },
+    {
+      urls: "turn:relay1.expressturn.com:3478",
+      username: "efgh",
+      credential: "efgh"
+    }
   ]
 };
 
-/* ========================
-  WebSocket signaling
-   ======================== */
-const wsProt = (location.protocol === "https:") ? "wss:" : "ws:";
-const socket = new WebSocket(wsProt + "//" + window.location.host);
-
-socket.addEventListener("open", () => logStatus("connected"));
-socket.addEventListener("close", () => logStatus("disconnected"));
-socket.addEventListener("error", (e) => { console.error("WS error", e); logStatus("ws error"); });
-
-/* ========================
-  Chat helpers
-   ======================== */
 function addMessage(text, me=false){
-  const d = document.createElement("div");
-  d.className = "msg " + (me ? "me" : "them");
-  d.textContent = text;
-  messagesDiv.appendChild(d);
+  const msg = document.createElement("div");
+  msg.className = "message "+(me?"me":"them");
+  msg.textContent=text;
+  messagesDiv.appendChild(msg);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
-sendBtn.onclick = () => {
-  const txt = textInput.value.trim();
-  if (!txt) return;
-  socket.send(JSON.stringify({ type: "chat", text: txt }));
-  addMessage("You: " + txt, true);
-  textInput.value = "";
+sendBtn.onclick = ()=>{
+  const text=input.value.trim();
+  if(text){
+    addMessage("You: "+text,true);
+    socket.send(JSON.stringify({type:"chat",text}));
+    input.value="";
+  }
 };
+input.addEventListener("keypress",e=>e.key==="Enter" && sendBtn.click());
 
-/* ========================
-  WebRTC state
-   ======================== */
-let pc = null;
-let localStream = null;
-let isCalling = false;
-let pendingCandidates = [];
-
-/* Create peer connection */
-function createPeer() {
-  if (pc) return pc;
-  pc = new RTCPeerConnection(ICE_CONFIG);
-
-  pc.onicecandidate = ev => {
-    if (ev.candidate) sendSignal({ type: "candidate", candidate: ev.candidate });
+function createPeer(){
+  peer = new RTCPeerConnection(iceConfig);
+  peer.ontrack = (e)=> remoteVideo.srcObject=e.streams[0];
+  peer.onicecandidate=(e)=>{
+    if(e.candidate) socket.send(JSON.stringify({type:"candidate",candidate:e.candidate}));
   };
-
-  pc.ontrack = ev => { remoteVideo.srcObject = ev.streams[0]; };
-
-  // Add any queued ICE candidates
-  pendingCandidates.forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)));
-  pendingCandidates = [];
-
-  return pc;
 }
 
-/* ========================
-  Signaling helpers
-   ======================== */
-function sendSignal(obj){ socket.send(JSON.stringify(obj)); }
-
-socket.addEventListener("message", async ev => {
-  try { handleSignalMessage(JSON.parse(ev.data)); }
-  catch(e){ console.warn("Bad signal message:", ev.data); }
-});
-
-/* ========================
-  Call flow helpers
-   ======================== */
-async function endCall(notify=true){
-  if (notify) sendSignal({ type: "endCall" });
-  if (pc) { try { pc.close(); } catch(e){} pc = null; }
-  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream=null; }
-  localVideo.srcObject = null;
-  remoteVideo.srcObject = null;
-  isCalling = false;
-  cleanupCallUI();
-  addMessage("📞 Call ended", true);
+async function startCall(){
+  createPeer();
+  localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+  localVideo.srcObject = localStream;
+  localStream.getTracks().forEach(track=>peer.addTrack(track,localStream));
+  const offer = await peer.createOffer();
+  await peer.setLocalDescription(offer);
+  socket.send(JSON.stringify({type:"offer",offer}));
+  startCallBtn.style.display="none";
+  endCallBtn.style.display="inline-block";
 }
 
-function cleanupCallUI(){
-  startCallBtn.style.display = "inline-block";
-  endCallBtn.style.display = "none";
+async function endCall(){
+  if(localStream) localStream.getTracks().forEach(track=>track.stop());
+  if(peer){ peer.close(); peer=null; }
+  localVideo.srcObject=null;
+  remoteVideo.srcObject=null;
+  startCallBtn.style.display="inline-block";
+  endCallBtn.style.display="none";
+  socket.send(JSON.stringify({type:"endCall"}));
+  addMessage("📞 Call ended",true);
 }
 
-/* ========================
-  Incoming call handlers
-   ======================== */
-startCallBtn.onclick = () => {
-  sendSignal({ type: "callRequest" });
-  isCalling = true;
-  logStatus("call requested — waiting for accept");
-  addMessage("📨 Call request sent — waiting for friend to accept", true);
-  startCallBtn.style.display = "none";
-  endCallBtn.style.display = "inline-block";
+startCallBtn.onclick=startCall;
+endCallBtn.onclick=endCall;
+
+acceptBtn.onclick = async ()=>{
+  incomingDiv.style.display="none";
+  createPeer();
+  localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+  localVideo.srcObject = localStream;
+  localStream.getTracks().forEach(track=>peer.addTrack(track,localStream));
+  await peer.setRemoteDescription(new RTCSessionDescription(currentOffer));
+  const answer = await peer.createAnswer();
+  await peer.setLocalDescription(answer);
+  socket.send(JSON.stringify({type:"answer",answer}));
+  startCallBtn.style.display="none";
+  endCallBtn.style.display="inline-block";
 };
 
-acceptBtn.onclick = async () => {
-  incomingDiv.style.display = "none";
-  sendSignal({ type: "callAccepted" });
-  logStatus("call accepted — waiting for offer");
-  addMessage("📞 Call accepted", true);
-  startCallBtn.style.display = "none";
-  endCallBtn.style.display = "inline-block";
+rejectBtn.onclick = ()=>{
+  incomingDiv.style.display="none";
+  socket.send(JSON.stringify({type:"rejectCall"}));
 };
 
-rejectBtn.onclick = () => {
-  incomingDiv.style.display = "none";
-  sendSignal({ type: "callRejected" });
-  logStatus("call rejected");
-  addMessage("✖️ Call rejected", true);
+socket.onmessage = async (event)=>{
+  const data = JSON.parse(event.data);
+
+  if(data.type==="chat") addMessage("Friend: "+data.text);
+  if(data.type==="offer"){
+    currentOffer = data.offer;
+    incomingDiv.style.display="block";
+  }
+  if(data.type==="answer" && peer)
+    await peer.setRemoteDescription(new RTCSessionDescription(data.answer));
+  if(data.type==="candidate" && data.candidate && peer)
+    await peer.addIceCandidate(data.candidate);
+  if(data.type==="endCall"){
+    endCall();
+    addMessage("📴 Friend ended the call");
+  }
+  if(data.type==="rejectCall"){
+    alert("Friend rejected the call");
+    endCall();
+  }
 };
-
-/* ========================
-  Handle incoming signals
-   ======================== */
-async function handleSignalMessage(msg){
-  switch(msg.type){
-    case "chat":
-      addMessage("Friend: " + msg.text);
-      break;
-
-    case "callRequest":
-      incomingDiv.style.display = "block";
-      logStatus("incoming call");
-      addMessage("📨 Incoming call...");
-      break;
-
-    case "callAccepted":
-      logStatus("call accepted — creating offer");
-      await callerCreateOffer();
-      break;
-
-    case "callRejected":
-      logStatus("friend rejected the call");
-      addMessage("✖️ Friend rejected the call");
-      isCalling = false;
-      cleanupCallUI();
-      break;
-
-    case "offer":
-      logStatus("offer received");
-      await handleReceivedOffer(msg.offer);
-      break;
-
-    case "answer":
-      logStatus("answer received");
-      if (pc && msg.answer) {
-        try { await pc.setRemoteDescription(new RTCSessionDescription(msg.answer)); }
-        catch(e){ console.error(e); }
-      }
-      break;
-
-    case "candidate":
-      if (pc) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); }
-        catch(e){ console.warn(e); }
-      } else {
-        pendingCandidates.push(msg.candidate);
-      }
-      break;
-
-    case "endCall":
-      addMessage("📴 Friend ended the call");
-      await endCall(false);
-      break;
-
-    default:
-      console.warn("Unknown signal type", msg);
-  }
-}
-
-/* ========================
-  Caller creates offer
-   ======================== */
-async function callerCreateOffer(){
-  try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
-    localVideo.srcObject = localStream;
-
-    createPeer();
-    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    sendSignal({ type: "offer", offer });
-
-    logStatus("offer sent");
-    addMessage("📞 Calling — offer sent", true);
-  } catch(e){
-    console.error(e);
-    addMessage("❗ Could not start camera/mic", true);
-    cleanupCallUI();
-  }
-}
-
-/* ========================
-  Receiver handles offer
-   ======================== */
-async function handleReceivedOffer(offer){
-  try {
-    createPeer();
-    localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
-    localVideo.srcObject = localStream;
-    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    sendSignal({ type: "answer", answer });
-
-    logStatus("answer sent — call connected");
-    addMessage("📞 Call connected", true);
-  } catch(e){
-    console.error(e);
-    addMessage("❗ Could not accept call", false);
-    sendSignal({ type: "callRejected" });
-  }
-}
-
-/* ========================
-  End call button
-   ======================== */
-endCallBtn.onclick = async () => await endCall(true);
-
-/* ========================
-  Cleanup on unload
-   ======================== */
-window.addEventListener("beforeunload", () => {
-  try { sendSignal({ type: "endCall" }); } catch(e){}
-});
 </script>
-
 </body>
 </html>
